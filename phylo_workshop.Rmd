@@ -1,0 +1,260 @@
+---
+title: "Phylogeny reconstruction workshop"
+output: html_document
+acknowledgements: Prepared by Dr. Jonathan Drury, modifying mammal workshop created by Dr. Andreanna Welch
+---
+
+## What is the evolutionary history of the virus causing covid-19?
+
+This virtual workshop is meant to give you a taste of how evolutionary biologists reconstruct phylogenies. Sometimes, resolving the phylogeny is a meaningful exercise in and of itself. Here, you will build a phylogeny using genomic data from several coronaviruses including SARS-CoV2 (the virus that causes covid-19) and close relatives sampled in bat and pangolin host species to find out the pathway that is most likely to have led to the ongoing covid-19 pandemic.
+
+I've written the workshop in R to keep software requirements consistent across different L2 modules (e.g., Research Skills, Behaviour, and Ecology all use R). Technically speaking, you could simply copy and paste the code as it appears in this document, without really having to think about what the functions are doing. However, I recommend carefully reading this document and exploring functions, for instance by looking up help pages (e.g.:`?plot()`), to understand why the code is written as it is.
+
+## Part 0: Prepare your R working environment
+
+*Note: This is written under the assumption that you are working within RStudio.*
+
+First, install the packages 'msa' and 'phangorn' and 'ape', if you haven't done so already
+
+```{r eval=FALSE}
+if (!requireNamespace("BiocManager", quietly=TRUE))
+install.packages("BiocManager")
+BiocManager::install("msa")
+install.packages(c("phangorn","ape"))
+```
+
+Load packages and a dataset that we will play around with
+
+```{r message=FALSE}
+require(msa)
+require(ape)
+require(phangorn)
+```
+
+Next, change your working directory to the folder that contains the files for today's workshop by either going to "Session" > "Set Working Directory" > "Choose Directory..." or by using the command `setwd()`.
+
+## Part 1: Load DNA sequences
+
+Many different types of data can be used to build a phylogenetic tree. Two of the most common are morphological data and DNA sequences; indeed, some phylogenetic tree building approaches can even accommodate having both of these types of data in the same data set. We are going to use DNA sequences today. *Note: Actually, SARS-CoV2 is an RNA virus, but sequence data come from DNA transcriptions, hence the presence of "T"s in the sequences below.* 
+
+An important aspect of research is to give enough details in your scientific publication so that your work can be replicated and confirmed. For researchers collecting DNA sequence data, this means that the data must be deposited in online databases that are freely accessible, such as Genbank.
+
+I have created a FASTA file (a file format used to store sequence information) with several coronavirus genomes in it, which I pulled together from data available on Genbank and on GISAID. Before loading the sequence data, take a look at Genbank by opening an internet browser and going to <https://www.ncbi.nlm.nih.gov/>.  On the right, in a section called “Popular Resources” click on “Nucleotide”. You are now at the gateway to Genbank.
+
+The virus that causes covid19 in humans is often referred to as SARS-CoV2 or hCoV-19. In the search bar, enter either of these terms. How many sequences are currently in Genbank?
+
+In Genbank, each submission gets an identifier known as an "accession number." One of the sequences we will analyse today has the accession number KY417145.1. Place this accession number in the search bar. What is the host species from which this virus was collected?
+
+```{r echo=FALSE}
+library(knitr)
+accno<-c("AY394995.1","DQ022305.2","DQ648857.1","GQ153543.1","GQ153547.1","KY352407.1","KY417145.1","MG772934.1","MN908947.3","NC_014470.1","EPI_ISL_402131","EPI_ISL_410538","EPI_ISL_410540","EPI_ISL_410721")
+src<-c(rep("GenBank",10),rep("GISAID",4))
+host.taxon<-c("human",rep("bat",7),"human","bat","bat",rep("pangolin",3))
+note<-c("<--SARS-CoV1 [2003 outbreak]",rep("",7),"<--SARS-CoV2 [2019 outbreak]",rep("",5))
+kable(cbind(accno,src,host.taxon,note),caption="Table 1. Samples included in today's workshop.",col.names=c("Accession No.", "Source", "Host Taxon", "Note"))
+```
+Near the top of the page of the page, under the bold text “Bat SARS-like coronavirus isolate Rf4092.…” click on the link that says FASTA. The first line of a FASTA entry starts with a header line that contains `>` and has some information about the sequence (this occasionally wraps around so it appears as if it’s two lines, but it’s really just one). The DNA sequence itself starts on the next line.
+
+I compiled sequences from a sample of several coronavirus genomes (Table 1) into a single FASTA file. Since each genome is ~29,000 bp, I trimmed the sequences so that the next steps take a bit less time. For more details on how this file was trimmed from the raw genome data, see [below](#genomes)
+
+Now that you see where you can obtain sequence data, let's load in some coronavirus sequences.
+
+```{r}
+covid_region_B_msa<-readDNAStringSet("covid_region_B.fasta",format="fasta") #load DNA sequences stored in fasta file
+```
+
+## Part 2: Prepare sequence alignment
+
+Below is a plot of the DNA sequences of the samples we'll be including in our phylogeny today. Each colour represents a different nucleotide, and the position on the Y-axis is the position along the genome.
+```{r echo=FALSE}
+image.DNAbin(as.DNAbin(covid_region_B_msa),cex=0.25) #visualise DNA sequences
+```
+
+You will notice that the sequences do not line up – that is, the colours representing different nucleotides appear to be a massive jumble. Phylogeny building programs assume that all of the nucleotides in a column share an evolutionary history. In order for that to be true, we need to align the sequences so that homologous positions appear in the same column. 
+
+There are many different algorithms (sets of computational rules) that can efficiently identify homology across sequences. Today, we will use the "Muscle" algorithm. *Note: this next step may take a few minutes to finish running, so be patient.*
+
+```{r eval=FALSE}
+covid_region_B_aligned<-msa(covid_region_B_msa,method="Muscle") #conduct alignment
+```
+
+Let's take a look at the alignment:
+
+```{r eval=FALSE}
+print(covid_region_B_aligned,show="complete") 
+```
+
+Now, trim off the edges (i.e., NC_014470.1 starts at 199, MN908947.3 ends at 5776). *Note: you have to toggle between a few different package-specific formats of alignments to make this happen*
+
+```{r eval=FALSE}
+covid_region_B_aligned_DNAbin<-as.DNAbin(covid_region_B_aligned) #change alignment to "DNAbin" format
+covid_region_B_aligned_DNAbin_trimmed<-covid_region_B_aligned_DNAbin[,199:5776] #trim to the desired region
+```
+
+Make a plot of the resulting alignment, and compare it to the plot above of the unaligned matrix:
+
+```{r eval=FALSE}
+image.DNAbin(covid_region_B_aligned_DNAbin_trimmed,cex=0.25) #plot alignment
+```
+
+How does this compare to the plot of unaligned sequences above?
+
+## Part 3: Tree building
+
+Using this alignment, we will now reconstruct the phylogeny using two different techniques. *Note that there are other techniques possible as well, such as neighbor-joining and parsimony techniques, but we'll just focus on two today.*
+
+The first technique we will use is UPGMA (**U**nweighted **P**air **G**roup **M**ethod using the **A**rithmetic mean). As you will have seen in the mini-lecture, this technique is a distance-based method that builds a tree according to how similar the genetic sequences are to one another.
+
+```{r eval=FALSE}
+covid_region_B_aligned_phyDat<-phyDat(covid_region_B_aligned_DNAbin_trimmed) #first, convert the alignment to a 'phyDat' object for use in the 'phangorn' package
+upgma_tree<-upgma(dist.ml(covid_region_B_aligned_phyDat)) #now, build a tree using the upgma technique
+plot(upgma_tree, cex=0.5) #plot this tree
+```
+
+Even though R makes this tree appear rooted, in fact it is unrooted. Two outgroup sequences (from more distant coronavirus samples collected in Kenya [KY352407] and Bulgaria [NC_014470]; all other samples were collected in China) were included in the tree. Let's re-root the tree with these as outgroup sequences.
+
+```{r eval=FALSE}
+upgma_tree<-root(upgma_tree,c("KY352407.1 Severe acute respiratory syndrome-related coronavirus strain BtKY72, complete genome","NC_014470.1 Bat coronavirus BM48-31/BGR/2008, complete genome"))
+plot(upgma_tree, cex=0.5) #plot this tree (cex controls the font size)
+```
+
+In the UPGMA tree, which sequence is the closest relative to the SARS-CoV2 genome collected from a human in Wuhan (MN908947.3)?
+
+Now we'll turn to a 'maximum likelihood' approach. One downside to the UPGMA approach is that it just uses patterns of similarity to devise a tree. That is, it ignores the process of evolution that produced the tree in the first place! Another family of approaches aims to build trees by fitting models of nucleotide evolution to the sequence alginments. Briefly, this approach tries to figure out which phylogenetic tree is the most likely have generated a specified DNA alignment. By calculating the 'likelihood' of a large number of possible phylogenies, we can find the tree that is *most likely* to have generated our dataset under a given model--this is the 'maximum likelihood' tree.
+
+Let's find the maximum likelihood tree under a particular set of rules for nucleotide evolution. The "GTR" model is a commonly used model with six rates of evolutionary changes in nucleotides (see: <https://en.wikipedia.org/wiki/Models_of_DNA_evolution#GTR_model_(Tavar%C3%A9_1986)>). These rates are estimated alongside the phylogeny itself during the optimisation process. *Note: Be patient--this step takes several seconds*
+
+```{r eval=FALSE}
+prelim_fit <- pml(upgma_tree, covid_region_B_aligned_phyDat) #initialise the likelihood optimisation
+fitGTR <- optim.pml(prelim_fit, model = "GTR", rearrangement = "stochastic") #now run likelihood optimisation
+```
+
+You can see the estimated rates of evolution by looking at the 'fitGTR' object:
+
+```{r eval=FALSE}
+print(fitGTR)
+```
+
+Which nucleotide changes are most common? What about the least common?
+
+But where is the phylogeny? In R, to examine the components of an object, you can use the `str()` function. Let's take a look at the maximum likelihood object produced in `optim.pml()`
+
+```{r eval=FALSE}
+str(fitGTR)
+```
+
+As you can see, there is an element of this object called 'tree'--this is the phylogeny. Let's root and plot it as before:
+
+```{r eval=FALSE}
+ml_gtr_tree<-root(fitGTR$tree,c("KY352407.1 Severe acute respiratory syndrome-related coronavirus strain BtKY72, complete genome","NC_014470.1 Bat coronavirus BM48-31/BGR/2008, complete genome")) #re-root the tree
+plot(ml_gtr_tree, cex=0.5)
+```
+
+How reasonable is this maximum likelihood phylogeny? One way of determining the reliability of a phylogeny is to conduct a 'bootstrapping' analysis. As you'll recall from the mini-lecture, bootstrapping is a re-sampling technique, where columns in the alignment are sampled (with replacement) to create a new alignment. Then, the ML tree is recalculated, and the topology is recorded. The bootstrap support value at each node corresponds to the proportion of bootsrapped trees in which that relationship appears. For these support values, 70 is considered minimum acceptable support (although marginal), and values > 90 are considered strong support.
+
+Let's create 100 bootstrap replicates and plot the rooted tree with bootstrap values at the nodes:
+```{r eval=FALSE}
+bs <- bootstrap.pml(fitGTR, bs=100, optNni=TRUE, multicore=TRUE, control = pml.control(trace=0))
+
+plotBS(root(fitGTR$tree,c("KY352407.1 Severe acute respiratory syndrome-related coronavirus strain BtKY72, complete genome","NC_014470.1 Bat coronavirus BM48-31/BGR/2008, complete genome")), bs,p=0,type="p",cex=0.5)
+```
+
+How does this tree compare to the UPGMA tree? Which sequence is the closest relative to the SARS-CoV2 genome collected from a human in Wuhan (MN908947.3)? How reliable is this inference?
+
+Finally, to save the tree, along with bootstrap support values, in the "Newick" format (a typical way of saving a phylogeny):
+
+```{r eval=FALSE}
+ml_gtr_tree_bootstrap<-plotBS(root(fitGTR$tree,c("KY352407.1 Severe acute respiratory syndrome-related coronavirus strain BtKY72, complete genome","NC_014470.1 Bat coronavirus BM48-31/BGR/2008, complete genome")), bs,p=0,type="p",cex=0.5)
+write.tree(ml_gtr_tree_bootstrap,file="ml_gtr_tree_bootstrap.tree")
+```
+
+You could then reload this tree in the future using:
+
+```{r eval=FALSE}
+ml_gtr_tree_bootstrap<-read.tree(file="ml_gtr_tree_bootstrap.tree")
+plot(ml_gtr_tree_bootstrap,show.node.label=TRUE)
+```
+
+## Part 4: Questions
+
+Click here (TBA) for a link to a short multiple choice quiz on duo.
+
+1. Take a look at the abstract of the paper cited on Genbank as having contributed accession number (KY417145.1). This specimen studied in the first place _______.
+  a. as part of a biodiversity study on bats in China.
+  b. as part of a surveillance study aiming to describe coronaviruses present in horseshoe bats.
+  c. as part of a project searching for the cause of the SARS-CoV2 outbreak.
+  d. as part of a veterinary study aiming to describe the cause of an illness in bats.
+  
+2. Why do we need to align sequences from different samples?
+  a. Sometimes, sequences start and end at different points owing to the sequencing method.
+  b. The genomes of different samples are not of the exact same length.
+  c. Phylogenetic reconstruction techniques assume that the characters (i.e., rows in character matrices) used are homologous across individuals.
+  d. All of the above.
+  
+3. In the UPGMA tree, which sequence is the closest relative to the SARS-CoV2 genome collected from a human in Wuhan (MN908947.3)?
+  a. AY394995.1
+  b. MG772934.1
+  c. EPI_ISL_402131
+  d. KY417145.1
+
+4. What does it mean to have a bootstrap support value of 100?
+  a. The node in question appears in all of the phylogenies reconstructed from bootstrapped character matrices.
+  b. 100 bootstrap replicates were conducted.
+  c. There is a 100% probability that the node in question is correctly placed in the phylogeny.  
+  d. 'a' and 'b'
+  
+5. In the ML tree, which sequence is more closely related to the SARS-CoV2 genome collected from a human in Wuhan (MN908947.3)?
+  a. AY394995.1
+  b. DQ084200.1
+  c. DQ648857.1
+  d. Neither, all three of these sequences share the same most recent common ancestor with the SARS-CoV2 sample.
+  
+6. Which nucleotide changes are most common? 
+  a. A <--> C
+  b. A <--> G
+  c. C <--> T
+  d. C <--> G
+
+7. How definitive is the evidence that SARS-CoV2 evolved in bat ancestors?
+  a. Very definitive, there is no doubt.
+  b. Convincing, but further sampling could reveal a non-bat ancestor that is even closer to the human sample.
+  c. Not convincing, the evidence from the phylogeny is inconclusive.
+  d. Not at all, the evidence from the phylogeny suggests a non-bat ancestor.
+
+8. Why is it necessary to include the viruses from Kenya and Bulgaria in the analysis?
+  a. These are included to test whether SARS-CoV2 originated in Kenya or Bulgaria.
+  b. These are included to calculate the timing of the spillover of SARS-CoV2 into humans.
+  c. These are included so that the tree depicts the accurate direction of ancestral evolutionary relationships.
+  d. These are included so that the aligment algorithm accurately identifies homologous characters.
+
+(...)
+
+## Advanced sequence preparation: sampling genomes {#genomes}
+For those of you who are curious about R, here's a bit more info on how the sequence data were prepared.
+
+First, read in the raw data--these are entire genome sequences of SARS-CoV viruses sampled in a number of species. 
+
+```{r}
+covid<-read.dna("covid_fasta.fasta",format="fasta")
+```
+
+"Region B" is a non-recombining part of the genome (and therefore better suited to phylogenetic reconstruction), and is found around position 3625-9150 (Boni et al. bioRxiv). Rather than aligning the entire genomes (which is fairly computationally expensive), let's just trim all sequences to positions 3500-9225 and write this to a new 'fasta' file.
+
+```{r}
+covid_region_B<-list()
+for(i in 1:length(covid)){
+	covid_region_B[[i]]<-covid[[i]][3500:9225]
+}
+
+names(covid_region_B)<-names(covid)
+class(covid_region_B)<-"DNAbin"
+```
+
+Now save this as a .fasta file
+
+```{r}
+write.FASTA(covid_region_B,file="covid_region_B.fasta")
+```
+
+Now we're ready to proceed with [Part 1: Load DNA sequences] above.
+
