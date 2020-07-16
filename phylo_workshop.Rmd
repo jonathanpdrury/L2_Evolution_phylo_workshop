@@ -72,7 +72,9 @@ image.DNAbin(as.DNAbin(covid_region_B_msa),cex=0.25) #visualise DNA sequences
 
 You will notice that the sequences do not line up – that is, the colours representing different nucleotides appear to be a massive jumble. Phylogeny building programs assume that all of the nucleotides in a column share an evolutionary history. In order for that to be true, we need to align the sequences so that homologous positions appear in the same column. 
 
-There are many different algorithms (sets of computational rules) that can efficiently identify homology across sequences. Today, we will use the "Muscle" algorithm. *Note: this next step may take a few minutes to finish running, so be patient.*
+There are many different algorithms (sets of computational rules 'that can be counted on--logically--to yield a certain sort of result whenever it is run'[^1]) that can efficiently identify homology across sequences. Today, we will use the "Muscle" algorithm. *Note: this next step may take a few minutes to finish running, so be patient.*
+
+[^1]: From Daniel Dennett's book *Darwin's Dangerous Idea*. At the risk of getting carried away--this is also from that book: "The term *algorithm* descends, via Latin (*algorismus*) to early English (*algorisme* and, mistakenly therefrom, *algorithm*), from the name of a Persian mathematician, Mûusâ al-Khowârizm, whose book on arithmetical procedures, written about 835 A.D., was translated into Latin in the twelfth century by Adelard of Bath or Robert of Chester. The idea that an algorithm is a foolproof and somehow 'mechanical' procedure has been present for centuries, but it was the pioneering work of Alan Turing, Kurt Gödel, and Alonzo Church in the 1930s that more or less fixed our current understanding of the term."
 
 ```{r eval=FALSE}
 covid_region_B_aligned<-msa(covid_region_B_msa,method="Muscle") #conduct alignment
@@ -238,7 +240,9 @@ First, read in the raw data--these are entire genome sequences of SARS-CoV virus
 covid<-read.dna("covid_fasta.fasta",format="fasta")
 ```
 
-"Region B" is a non-recombining part of the genome (and therefore better suited to phylogenetic reconstruction), and is found around position 3625-9150 (Boni et al. bioRxiv). Rather than aligning the entire genomes (which is fairly computationally expensive), let's just trim all sequences to positions 3500-9225 and write this to a new 'fasta' file.
+"Region B" is a non-recombining part of the genome (and therefore better suited to phylogenetic reconstruction), and is found around position 3625-9150[^2]. Rather than aligning the entire genomes (which is fairly computationally expensive), let's just trim all sequences to positions 3500-9225 and write this to a new 'fasta' file.
+
+[^2]: Boni et al. bioRxiv (https://www.biorxiv.org/content/10.1101/2020.03.30.015008v1)
 
 ```{r}
 covid_region_B<-list()
